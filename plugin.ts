@@ -1219,8 +1219,10 @@ async function* streamFromGateway(options: GatewayOptions, accountId: string): A
   if (gatewayAuth) {
     headers['Authorization'] = `Bearer ${gatewayAuth}`;
   }
-  // 使用 HTTP Header 传递 accountId 用于 agent 路由
-  headers['X-OpenClaw-Agent-Id'] = accountId;
+  // 使用 HTTP Header 传递 accountId 用于 agent 路由（'default' 不发，让 gateway 路由到默认 agent）
+  if (accountId && accountId !== 'default') {
+    headers['X-OpenClaw-Agent-Id'] = accountId;
+  }
 
   log?.info?.(`[DingTalk][Gateway] POST ${gatewayUrl}, session=${sessionKey}, accountId=${accountId}, messages=${messages.length}`);
 
@@ -2467,12 +2469,13 @@ async function handleDingTalkMessage(params: {
     let fullResponse = '';
     try {
       for await (const chunk of streamFromGateway({
-        userContent: content.text,
+        userContent,
         systemPrompts,
         sessionKey,
         gatewayAuth,
+        imageLocalPaths: imageLocalPaths.length > 0 ? imageLocalPaths : undefined,
         log,
-      })) {
+      }, accountId)) {
         fullResponse += chunk;
       }
 
