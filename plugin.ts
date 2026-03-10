@@ -3065,7 +3065,10 @@ const dingtalkPlugin = {
       const config = getConfig(cfg);
       const id = accountId || DEFAULT_ACCOUNT_ID;
       if (config.accounts?.[id]) {
-        return { accountId: id, config: config.accounts[id], enabled: config.accounts[id].enabled !== false };
+        // 合并 channel 级别配置（如 gatewayBaseUrl）到 account 配置
+        const { accounts, ...channelConfig } = config;
+        const mergedConfig = { ...channelConfig, ...config.accounts[id] };
+        return { accountId: id, config: mergedConfig, enabled: config.accounts[id].enabled !== false };
       }
       // 没有 accounts 配置或找不到指定账号时，使用顶层配置
       return { accountId: DEFAULT_ACCOUNT_ID, config, enabled: config.enabled !== false };
