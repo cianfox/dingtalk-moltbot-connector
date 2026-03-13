@@ -1,6 +1,6 @@
 import { DWClient, TOPIC_ROBOT } from 'dingtalk-stream';
 import type { ClawdbotConfig, RuntimeEnv, HistoryEntry } from "openclaw/plugin-sdk";
-import type { ResolvedDingtalkAccount, DingtalkConfig } from "./types.ts";
+import type { ResolvedDingtalkAccount, DingtalkConfig } from "./types";
 import { 
   isMessageProcessed, 
   markMessageProcessed, 
@@ -10,13 +10,13 @@ import {
   getOapiAccessToken,
   DINGTALK_API,
   DINGTALK_OAPI
-} from "./utils.ts";
+} from "./utils";
 import { 
   createAICardForTarget, 
   streamAICard, 
   finishAICard,
   type AICardTarget 
-} from "./messaging.ts";
+} from "./messaging";
 import { 
   processLocalImages, 
   processVideoMarkers, 
@@ -27,11 +27,12 @@ import {
   FILE_MARKER_PATTERN,
   VIDEO_MARKER_PATTERN,
   AUDIO_MARKER_PATTERN
-} from "./media.ts";
+} from "./media";
 import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { setMessageHandler } from "./monitor-single";
 
 // ============ 常量 ============
 
@@ -652,102 +653,11 @@ async function handleDingTalkMessage(params: HandleMessageParams): Promise<void>
   }
 }
 
-// ============ 监控账号 ============
-
-export async function monitorSingleAccount(opts: MonitorDingtalkAccountOpts): Promise<void> {
-  const { cfg, account, runtime, abortSignal } = opts;
-  const { accountId } = account;
-  const log = runtime?.log ?? console.log;
-
-  if (!account.clientId || !account.clientSecret) {
-    throw new Error(`DingTalk account "${accountId}" missing credentials`);
-  }
-
-  log(`[DingTalk][${accountId}] Starting DingTalk Stream client...`);
-
-  const client = new DWClient({
-    clientId: account.clientId,
-    clientSecret: account.clientSecret,
-  });
-
-  return new Promise<void>((resolve, reject) => {
-    // Handle abort signal
-    if (abortSignal) {
-      const onAbort = () => {
-        log(`[DingTalk][${accountId}] Abort signal received, stopping...`);
-        client.disconnect();
-        resolve();
-      };
-      abortSignal.addEventListener("abort", onAbort, { once: true });
-    }
-
-    // Register message handler
-    client.registerAllEventListener(async (res: any) => {
-      const messageId = res.headers?.messageId;
-      log?.info?.(`[DingTalk] 收到 Stream 回调, messageId=${messageId}`);
-
-      // 立即确认回调
-      if (messageId) {
-        client.socketCallBackResponse(messageId, { success: true });
-        log?.info?.(`[DingTalk] 已立即确认回调: messageId=${messageId}`);
-      }
-
-      // 消息去重
-      if (messageId && isMessageProcessed(accountId, messageId)) {
-        log?.warn?.(`[DingTalk][${accountId}] 检测到重复消息，跳过处理: messageId=${messageId}`);
-        return;
-      }
-
-      if (messageId) {
-        markMessageProcessed(accountId, messageId);
-      }
-
-      // 异步处理消息
-      try {
-        const data = JSON.parse(res.data);
-        log?.info?.(`[DingTalk] 开始处理消息: accountId=${accountId}, hasConfig=${!!account.config}, dataKeys=${Object.keys(data).join(',')}`);
-        
-        await handleDingTalkMessage({
-          accountId,
-          config: account.config,
-          data,
-          sessionWebhook: data.sessionWebhook,
-          runtime,
-          log,
-        });
-        
-        log?.info?.(`[DingTalk] 消息处理完成`);
-      } catch (error: any) {
-        log?.error?.(`[DingTalk] 处理消息异常: ${error.message}\n${error.stack}`);
-      }
-    });
-
-    // Connect to DingTalk Stream
-    client.connect()
-      .then(() => {
-        log(`[DingTalk][${accountId}] Connected to DingTalk Stream`);
-      })
-      .catch((err) => {
-        log(`[DingTalk][${accountId}] Failed to connect: ${err.message}`);
-        reject(err);
-      });
-
-    // Handle disconnection
-    client.on('close', () => {
-      log(`[DingTalk][${accountId}] Connection closed`);
-      resolve();
-    });
-
-    client.on('error', (err: Error) => {
-      log(`[DingTalk][${accountId}] Connection error: ${err.message}`);
-      reject(err);
-    });
-  });
-}
-
-export function resolveReactionSyntheticEvent(
-  event: any,
-): DingtalkReactionCreatedEvent | null {
-  // DingTalk doesn't support reactions in the same way as Feishu
-  return null;
-}
+// 注册消息处理器到 monitor-single.ts
+console.log('='.repeat(60));
+console.log('[monitor.account.ts] 模块加载完成，准备设置消息处理器');
+console.log('[monitor.account.ts] handleDingTalkMessage 类型:', typeof handleDingTalkMessage);
+console.log('[monitor.account.ts] 调用 setMessageHandler...');
+setMessageHandler(handleDingTalkMessage);
+console.log('[monitor.account.ts] setMessageHandler 调用完成');
+console.log('='.repeat(60));
