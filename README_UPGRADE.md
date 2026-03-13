@@ -73,7 +73,7 @@ openclaw gateway restart
 安装完成后，运行以下命令验证是否安装成功且为内测版本：
 
 ```bash
-openclaw plugins list | grep dingtalk-connector
+openclaw plugins list | grep dingtalk
 ```
 
 应该看到：

@@ -705,6 +705,8 @@ export async function monitorSingleAccount(opts: MonitorDingtalkAccountOpts): Pr
       // 异步处理消息
       try {
         const data = JSON.parse(res.data);
+        log?.info?.(`[DingTalk] 开始处理消息: accountId=${accountId}, hasConfig=${!!account.config}, dataKeys=${Object.keys(data).join(',')}`);
+        
         await handleDingTalkMessage({
           accountId,
           config: account.config,
@@ -713,8 +715,10 @@ export async function monitorSingleAccount(opts: MonitorDingtalkAccountOpts): Pr
           runtime,
           log,
         });
+        
+        log?.info?.(`[DingTalk] 消息处理完成`);
       } catch (error: any) {
-        log?.error?.(`[DingTalk] 处理消息异常: ${error.message}`);
+        log?.error?.(`[DingTalk] 处理消息异常: ${error.message}\n${error.stack}`);
       }
     });
 
