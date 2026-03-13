@@ -9,7 +9,7 @@ const {
   stopDingtalkMonitorState,
 } = monitorState;
 
-console.log('[monitor.ts] 模块加载完成');
+
 
 export type MonitorDingtalkOpts = {
   config?: ClawdbotConfig;
@@ -35,7 +35,7 @@ export async function monitorDingtalkProvider(opts: MonitorDingtalkOpts = {}): P
 
   const log = opts.runtime?.log ?? console.log;
 
-  log?.info?.(`[monitorDingtalkProvider] 开始执行，accountId=${opts.accountId}`);
+
 
   // 并行导入所有模块（无循环依赖，可以并行）
   const [accountsModule, monitorAccountModule, monitorSingleModule] = await Promise.all([
@@ -48,25 +48,12 @@ export async function monitorDingtalkProvider(opts: MonitorDingtalkOpts = {}): P
   const { handleDingTalkMessage } = monitorAccountModule;
   const { monitorSingleAccount, resolveReactionSyntheticEvent } = monitorSingleModule;
   
-  // 调试：检查导入的函数类型
-  log?.info?.(`[monitorDingtalkProvider] handleDingTalkMessage 类型：${typeof handleDingTalkMessage}`);
-  log?.info?.(`[monitorDingtalkProvider] handleDingTalkMessage 是否为函数：${typeof handleDingTalkMessage === 'function'}`);
-  if (typeof handleDingTalkMessage !== 'function') {
-    log?.error?.(`[monitorDingtalkProvider] handleDingTalkMessage 不是函数！实际值：`, handleDingTalkMessage);
-    log?.error?.(`[monitorDingtalkProvider] monitorAccountModule keys:`, Object.keys(monitorAccountModule));
-  }
+
 
   if (opts.accountId) {
-    log?.info?.(`[monitorDingtalkProvider] 监控单个账号：${opts.accountId}`);
     const account = resolveDingtalkAccount({ cfg, accountId: opts.accountId });
     if (!account.enabled || !account.configured) {
       throw new Error(`DingTalk account "${opts.accountId}" not configured or disabled`);
-    }
-    log?.info?.(`[monitorDingtalkProvider] 调用 monitorSingleAccount for ${opts.accountId}`);
-    log?.info?.(`[monitorDingtalkProvider] monitorSingleAccount 类型：${typeof monitorSingleAccount}`);
-    if (typeof monitorSingleAccount !== 'function') {
-      log?.error?.(`[monitorDingtalkProvider] monitorSingleAccount 不是函数！类型：${typeof monitorSingleAccount}`);
-      throw new Error(`monitorSingleAccount is not a function, type: ${typeof monitorSingleAccount}`);
     }
     return monitorSingleAccount({
       cfg,
@@ -78,7 +65,6 @@ export async function monitorDingtalkProvider(opts: MonitorDingtalkOpts = {}): P
   }
 
   const accounts = listEnabledDingtalkAccounts(cfg);
-  log?.info?.(`[monitorDingtalkProvider] 找到 ${accounts.length} 个启用的账号`);
   if (accounts.length === 0) {
     throw new Error("No enabled DingTalk accounts configured");
   }
@@ -94,7 +80,6 @@ export async function monitorDingtalkProvider(opts: MonitorDingtalkOpts = {}): P
       break;
     }
 
-    log?.info?.(`[monitorDingtalkProvider] 准备启动账号：${account.accountId}`);
     monitorPromises.push(
       monitorSingleAccount({
         cfg,

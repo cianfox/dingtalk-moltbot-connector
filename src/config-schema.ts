@@ -62,6 +62,8 @@ const DingtalkSharedConfigShape = {
   resolveSenderNames: z.boolean().optional(),
   separateSessionByConversation: z.boolean().optional(),
   groupSessionScope: GroupSessionScopeSchema,
+  asyncMode: z.boolean().optional(),
+  ackText: z.string().optional(),
 };
 
 /**

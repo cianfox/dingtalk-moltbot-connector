@@ -21,6 +21,7 @@ import {
   VIDEO_MARKER_PATTERN,
   AUDIO_MARKER_PATTERN
 } from "./media";
+import { sendProactive, type AICardTarget } from "./messaging.js";
 import { createDingtalkReplyDispatcher, normalizeSlashCommand } from "./reply-dispatcher.js";
 import { getDingtalkRuntime } from "./runtime.js";
 import axios from 'axios';
@@ -271,7 +272,7 @@ export async function handleDingTalkMessage(params: HandleMessageParams): Promis
   const senderId = data.senderStaffId || data.senderId;
   const senderName = data.senderNick || 'Unknown';
 
-  log?.info?.(`[DingTalk] 收到消息: from=${senderName} type=${content.messageType} text="${content.text.slice(0, 50)}..." images=${content.imageUrls.length} downloadCodes=${content.downloadCodes.length}`);
+
 
   // ===== DM Policy 检查 =====
   if (isDirect) {
@@ -294,8 +295,7 @@ export async function handleDingTalkMessage(params: HandleMessageParams): Promis
     separateSessionByConversation: config.separateSessionByConversation,
     groupSessionScope: config.groupSessionScope,
   });
-  const sessionContextJson = JSON.stringify(sessionContext);
-  log?.info?.(`[DingTalk][Session] context=${sessionContextJson}`);
+
 
   // 构建消息内容
   // ✅ 使用 normalizeSlashCommand 归一化新会话命令
@@ -327,9 +327,7 @@ export async function handleDingTalkMessage(params: HandleMessageParams): Promis
     }
   }
 
-  if (imageLocalPaths.length > 0) {
-    log?.info?.(`[DingTalk][Image] 成功下载 ${imageLocalPaths.length} 张图片到本地`);
-  }
+
 
   // ===== 文件附件下载与内容提取 =====
   const TEXT_FILE_EXTENSIONS = new Set(['.txt', '.md', '.json', '.xml', '.yaml', '.yml', '.csv', '.log', '.ts', '.js', '.py', '.java', '.go', '.rs', '.c', '.cpp', '.h', '.hpp', '.css', '.html', '.sql', '.sh', '.bat']);
@@ -355,7 +353,6 @@ export async function handleDingTalkMessage(params: HandleMessageParams): Promis
         const maxLen = 50_000;
         const truncated = fileContent.length > maxLen ? fileContent.slice(0, maxLen) + '\n...(内容过长，已截断)' : fileContent;
         fileContentParts.push(`[文件: ${fileName}]\n\`\`\`\n${truncated}\n\`\`\``);
-        log?.info?.(`[DingTalk][File] 文本文件已读取: ${fileName}, size=${fileContent.length}`);
       } catch (err: any) {
         log?.error?.(`[DingTalk][File] 读取文本文件失败: ${err.message}`);
         fileContentParts.push(`[文件已保存: ${localPath}，但读取内容失败]`);
@@ -368,7 +365,6 @@ export async function handleDingTalkMessage(params: HandleMessageParams): Promis
         const maxLen = 50_000;
         const truncated = fileContent.length > maxLen ? fileContent.slice(0, maxLen) + '\n...(内容过长，已截断)' : fileContent;
         fileContentParts.push(`[文件: ${fileName}]\n\`\`\`\n${truncated}\n\`\`\``);
-        log?.info?.(`[DingTalk][File] Word 文档已提取文本: ${fileName}, size=${fileContent.length}`);
       } catch (err: any) {
         log?.error?.(`[DingTalk][File] Word 文档文本提取失败: ${err.message}`);
         fileContentParts.push(`[文件已保存: ${localPath}，但提取文本失败]`);
@@ -382,14 +378,12 @@ export async function handleDingTalkMessage(params: HandleMessageParams): Promis
         const maxLen = 50_000;
         const truncated = fileContent.length > maxLen ? fileContent.slice(0, maxLen) + '\n...(内容过长，已截断)' : fileContent;
         fileContentParts.push(`[文件: ${fileName}]\n\`\`\`\n${truncated}\n\`\`\``);
-        log?.info?.(`[DingTalk][File] PDF 文档已提取文本: ${fileName}, size=${fileContent.length}`);
       } catch (err: any) {
         log?.error?.(`[DingTalk][File] PDF 文档文本提取失败: ${err.message}`);
         fileContentParts.push(`[文件已保存: ${localPath}，但提取文本失败]`);
       }
     } else {
       fileContentParts.push(`[文件已保存: ${localPath}，请基于文件名和上下文回答]`);
-      log?.info?.(`[DingTalk][File] 文件已保存: ${fileName} -> ${localPath}`);
     }
   }
 
@@ -400,12 +394,32 @@ export async function handleDingTalkMessage(params: HandleMessageParams): Promis
 
   if (!userContent && imageLocalPaths.length === 0) return;
 
-  // 获取 oapi token
+  // ===== 异步模式：立即回执 + 后台执行 + 主动推送结果 =====
+  const asyncMode = config.asyncMode === true;
+  log?.info?.(`[DingTalk][Async] asyncMode 检测: config.asyncMode=${config.asyncMode}, asyncMode=${asyncMode}`);
+  
+  const proactiveTarget = isDirect
+    ? { userId: senderId }
+    : { openConversationId: data.conversationId };
+
+  if (asyncMode) {
+    log?.info?.(`[DingTalk][Async] 进入异步模式分支`);
+    const ackText = config.ackText || '🫡 任务已接收，处理中...';
+    try {
+      await sendProactive(config, proactiveTarget, ackText, {
+        msgType: 'text',
+        useAICard: false,
+        fallbackToNormal: true,
+        log,
+      });
+    } catch (ackErr: any) {
+      log?.warn?.(`[DingTalk][Async] Failed to send acknowledgment: ${ackErr?.message || ackErr}`);
+    }
+  }
+
   // ===== 使用 SDK 的 dispatchReplyFromConfig =====
   try {
-    console.log(`[DingTalk][${accountId}] ========== 开始 SDK 处理 ==========`);
     const core = getDingtalkRuntime();
-    console.log(`[DingTalk][${accountId}] core 获取成功`);
     
     // 构建消息体（添加图片）
     let finalContent = userContent;
@@ -413,14 +427,10 @@ export async function handleDingTalkMessage(params: HandleMessageParams): Promis
       const imageMarkdown = imageLocalPaths.map(p => `![image](file://${p})`).join('\n');
       finalContent = finalContent ? `${finalContent}\n\n${imageMarkdown}` : imageMarkdown;
     }
-    console.log(`[DingTalk][${accountId}] finalContent: ${finalContent.substring(0, 100)}...`);
 
     // 构建 envelope 格式的消息
-    console.log(`[DingTalk][${accountId}] 开始构建 envelope...`);
     const envelopeOptions = core.channel.reply.resolveEnvelopeFormatOptions(cfg);
-    console.log(`[DingTalk][${accountId}] envelopeOptions:`, JSON.stringify(envelopeOptions));
     const envelopeFrom = isDirect ? senderId : `${data.conversationId}:${senderId}`;
-    console.log(`[DingTalk][${accountId}] envelopeFrom: ${envelopeFrom}`);
     
     const body = core.channel.reply.formatAgentEnvelope({
       channel: "DingTalk",
@@ -429,14 +439,10 @@ export async function handleDingTalkMessage(params: HandleMessageParams): Promis
       envelope: envelopeOptions,
       body: finalContent,
     });
-    console.log(`[DingTalk][${accountId}] body 构建完成: ${body.substring(0, 100)}...`);
 
-    // ✅ 【关键修复】手动实现路由匹配（支持通配符 *）
-    console.log(`[DingTalk][${accountId}] 开始解析 agent 路由...`);
+    // 手动实现路由匹配（支持通配符 *）
     const chatType = isDirect ? "direct" : "group";
     const peerId = isDirect ? senderId : data.conversationId;
-    
-    console.log(`[DingTalk][${accountId}] 路由参数: channel=dingtalk-connector, accountId=${accountId}, peer={kind:${chatType}, id:${peerId}}`);
     
     // 手动匹配 bindings（支持通配符 *）
     let matchedAgentId: string | null = null;
@@ -472,7 +478,6 @@ export async function handleDingTalkMessage(params: HandleMessageParams): Promis
         // 匹配成功
         matchedAgentId = binding.agentId;
         matchedBy = 'binding';
-        console.log(`[DingTalk][${accountId}] ✅ 匹配成功: agentId=${matchedAgentId}, binding=${JSON.stringify(binding.match)}`);
         break;
       }
     }
@@ -511,12 +516,9 @@ export async function handleDingTalkMessage(params: HandleMessageParams): Promis
       OriginatingChannel: "dingtalk" as const,
       OriginatingTo: accountId,
     });
-    console.log(`[DingTalk][${accountId}] ctxPayload 构建完成, SessionKey: ${ctxPayload.SessionKey}`);
 
     // 创建 reply dispatcher，使用解析后的 agentId
-    console.log(`[DingTalk][${accountId}] 开始创建 reply dispatcher...`);
-    
-    const { dispatcher, replyOptions, markDispatchIdle } = createDingtalkReplyDispatcher({
+    const { dispatcher, replyOptions, markDispatchIdle, getAsyncModeResponse } = createDingtalkReplyDispatcher({
       cfg,
       agentId: matchedAgentId,  // ✅ 使用手动匹配的 agentId
       runtime: runtime as RuntimeEnv,
@@ -526,34 +528,108 @@ export async function handleDingTalkMessage(params: HandleMessageParams): Promis
       accountId,
       messageCreateTimeMs: Date.now(),
       sessionWebhook: data.sessionWebhook,
+      asyncMode,
     });
-    console.log(`[DingTalk][${accountId}] reply dispatcher 创建完成，使用 agentId: ${matchedAgentId}`);
-    console.log(`[DingTalk][${accountId}] replyOptions keys:`, Object.keys(replyOptions));
-    console.log(`[DingTalk][${accountId}] replyOptions.onModelSelected:`, typeof replyOptions.onModelSelected);
-    console.log(`[DingTalk][${accountId}] replyOptions.onPartialReply:`, typeof replyOptions.onPartialReply);
-
-    console.log(`[DingTalk][${accountId}] 开始 SDK dispatch: session=${ctxPayload.SessionKey}`);
 
     // 使用 SDK 的 dispatchReplyFromConfig
-    console.log(`[DingTalk][${accountId}] 调用 withReplyDispatcher...`);
-    const { queuedFinal, counts } = await core.channel.reply.withReplyDispatcher({
-      dispatcher,
-      onSettled: () => {
-        console.log(`[DingTalk][${accountId}] onSettled 被调用`);
-        markDispatchIdle();
-      },
-      run: () => {
-        console.log(`[DingTalk][${accountId}] run 被调用，开始 dispatchReplyFromConfig...`);
-        return core.channel.reply.dispatchReplyFromConfig({
-          ctx: ctxPayload,
-          cfg,
-          dispatcher,
-          replyOptions,
-        });
-      },
-    });
-
+    log?.info?.(`[DingTalk][${accountId}] 调用 withReplyDispatcher，asyncMode=${asyncMode}`);
+    console.log(`[DingTalk][${accountId}] 准备调用 withReplyDispatcher...`);
+    
+    let dispatchResult;
+    try {
+      dispatchResult = await core.channel.reply.withReplyDispatcher({
+        dispatcher,
+        onSettled: () => {
+          log?.info?.(`[DingTalk][${accountId}] onSettled 被调用`);
+          console.log(`[DingTalk][${accountId}] onSettled 被调用`);
+          markDispatchIdle();
+        },
+        run: () => {
+          log?.info?.(`[DingTalk][${accountId}] run 被调用，开始 dispatchReplyFromConfig`);
+          console.log(`[DingTalk][${accountId}] run 被调用`);
+          return core.channel.reply.dispatchReplyFromConfig({
+            ctx: ctxPayload,
+            cfg,
+            dispatcher,
+            replyOptions,
+          });
+        },
+      });
+      console.log(`[DingTalk][${accountId}] withReplyDispatcher 返回成功`);
+    } catch (dispatchErr: any) {
+      console.error(`[DingTalk][${accountId}] withReplyDispatcher 抛出异常: ${dispatchErr?.message || dispatchErr}`);
+      console.error(`[DingTalk][${accountId}] 异常堆栈: ${dispatchErr?.stack || 'no stack'}`);
+      throw dispatchErr;
+    }
+    
+    const { queuedFinal, counts } = dispatchResult;
+    log?.info?.(`[DingTalk][${accountId}] SDK dispatch 完成: queuedFinal=${queuedFinal}, replies=${counts.final}, asyncMode=${asyncMode}`);
     console.log(`[DingTalk][${accountId}] SDK dispatch 完成: queuedFinal=${queuedFinal}, replies=${counts.final}`);
+
+    // ===== 异步模式：主动推送最终结果 =====
+    if (asyncMode) {
+      try {
+        const fullResponse = getAsyncModeResponse();
+        const oapiToken = await getOapiAccessToken(config);
+        let finalText = fullResponse;
+
+        if (oapiToken) {
+          finalText = await processLocalImages(finalText, oapiToken, log);
+
+          const mediaTarget: AICardTarget = isDirect
+            ? { type: 'user', userId: senderId }
+            : { type: 'group', openConversationId: data.conversationId };
+          
+          finalText = await processVideoMarkers(
+            finalText,
+            '',
+            config,
+            oapiToken,
+            log,
+            true,
+            mediaTarget
+          );
+          finalText = await processAudioMarkers(
+            finalText,
+            '',
+            config,
+            oapiToken,
+            log,
+            true,
+            mediaTarget
+          );
+          finalText = await processFileMarkers(
+            finalText,
+            '',
+            config,
+            oapiToken,
+            log,
+            true,
+            mediaTarget
+          );
+        }
+
+        const textToSend = finalText.trim() || '✅ 任务执行完成（无文本输出）';
+        await sendProactive(config, proactiveTarget, textToSend, {
+          msgType: 'markdown',
+          useAICard: false,
+          fallbackToNormal: true,
+          log,
+        });
+      } catch (asyncErr: any) {
+        const errMsg = `⚠️ 任务执行失败: ${asyncErr?.message || asyncErr}`;
+        try {
+          await sendProactive(config, proactiveTarget, errMsg, {
+            msgType: 'text',
+            useAICard: false,
+            fallbackToNormal: true,
+            log,
+          });
+        } catch (sendErr: any) {
+          log?.error?.(`[DingTalk][Async] 错误通知发送失败: ${sendErr?.message || sendErr}`);
+        }
+      }
+    }
 
   } catch (err: any) {
     log?.error?.(`[DingTalk] SDK dispatch 失败: ${err.message}`);

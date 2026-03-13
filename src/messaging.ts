@@ -589,12 +589,12 @@ export async function sendToUser(
   text: string,
   options?: ProactiveSendOptions,
 ): Promise<SendResult> {
-  return sendProactive({
+  return sendProactive(
     config,
-    target: { type: 'user', userId },
+    { userId },
     text,
-    ...options,
-  });
+    options || {}
+  );
 }
 
 /**
@@ -606,12 +606,12 @@ export async function sendToGroup(
   text: string,
   options?: ProactiveSendOptions,
 ): Promise<SendResult> {
-  return sendProactive({
+  return sendProactive(
     config,
-    target: { type: 'group', openConversationId },
+    { openConversationId },
     text,
-    ...options,
-  });
+    options || {}
+  );
 }
 
 /**
@@ -686,14 +686,89 @@ export async function sendProactive(
     }
   }
 
+  // 直接实现发送逻辑，不要递归调用 sendToUser/sendToGroup
   if (target.userId || target.userIds) {
     const userIds = target.userIds || [target.userId!];
-    return sendToUser(config, userIds, content, options);
+    const userId = userIds[0];
+    
+    // 构建发送参数
+    return sendProactiveInternal(config, { type: 'user', userId }, content, options);
   }
 
   if (target.openConversationId) {
-    return sendToGroup(config, target.openConversationId, content, options);
+    return sendProactiveInternal(config, { type: 'group', openConversationId: target.openConversationId }, content, options);
   }
 
   return { ok: false, error: 'Must specify userId, userIds, or openConversationId', usedAICard: false };
+}
+
+/**
+ * 内部发送实现
+ */
+async function sendProactiveInternal(
+  config: DingtalkConfig,
+  target: AICardTarget,
+  content: string,
+  options: ProactiveSendOptions,
+): Promise<SendResult> {
+  const { msgType = 'text', useAICard = false, fallbackToNormal = false, log } = options;
+  
+  // 如果启用 AI Card
+  if (useAICard) {
+    try {
+      const card = await createAICardForTarget(config, target, log);
+      if (card) {
+        await finishAICard(card, content, log);
+        return { ok: true, cardInstanceId: card.cardInstanceId, usedAICard: true };
+      }
+      if (!fallbackToNormal) {
+        return { ok: false, error: 'Failed to create AI Card', usedAICard: false };
+      }
+    } catch (err: any) {
+      log?.error?.(`[DingTalk] AI Card 发送失败: ${err.message}`);
+      if (!fallbackToNormal) {
+        return { ok: false, error: err.message, usedAICard: false };
+      }
+    }
+  }
+  
+  // 发送普通消息
+  try {
+    const token = await getAccessToken(config);
+    const isUser = target.type === 'user';
+    const targetId = isUser ? target.userId : target.openConversationId;
+    
+    // 构建 webhook URL
+    const webhookUrl = `${DINGTALK_API}/v1.0/robot/oToMessages/batchSend`;
+    
+    // 构建消息体
+    const body: any = {
+      robotCode: config.clientId,
+      msgKey: msgType === 'markdown' ? 'sampleMarkdown' : 'sampleText',
+    };
+    
+    if (msgType === 'markdown') {
+      body.msgParam = JSON.stringify({
+        title: options.title || 'Message',
+        text: content,
+      });
+    } else {
+      body.msgParam = JSON.stringify({ content });
+    }
+    
+    if (isUser) {
+      body.userIds = [targetId];
+    } else {
+      body.openConversationId = targetId;
+    }
+    
+    const resp = await axios.post(webhookUrl, body, {
+      headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
+    });
+    
+    return { ok: true, processQueryKey: resp.data?.processQueryKey, usedAICard: false };
+  } catch (err: any) {
+    log?.error?.(`[DingTalk] 发送消息失败: ${err.message}`);
+    return { ok: false, error: err.message, usedAICard: false };
+  }
 }

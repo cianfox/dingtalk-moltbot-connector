@@ -3,10 +3,7 @@
  * 独立于 monitor.account.ts，避免循环依赖
  */
 
-console.log('='.repeat(60));
-console.log('[monitor-single.ts] 模块开始加载');
-console.log('[monitor-single.ts] 当前 globalMessageHandler 初始值:', null);
-console.log('='.repeat(60));
+
 
 import type { ClawdbotConfig, RuntimeEnv } from "openclaw/plugin-sdk";
 import type { ResolvedDingtalkAccount } from "./types";
@@ -90,30 +87,21 @@ export async function monitorSingleAccount(opts: MonitorDingtalkAccountOpts): Pr
   }
 
   log(`[DingTalk][${accountId}] Starting DingTalk Stream client...`);
-  log(`[DingTalk][${accountId}] 消息处理器：${typeof messageHandler === 'function' ? '已传入 ✓' : '未传入 ✗'}`);
 
-  // 动态导入 dingtalk-stream 模块，避免动态导入场景下的导出问题
-  log(`[DingTalk][${accountId}] 开始动态导入 dingtalk-stream 模块...`);
+  // 动态导入 dingtalk-stream 模块
   const dingtalkStreamModule = await import('dingtalk-stream');
-  log(`[DingTalk][${accountId}] dingtalk-stream 模块导入完成，keys:`, Object.keys(dingtalkStreamModule).join(', '));
-  
   const DWClient = dingtalkStreamModule.DWClient ?? dingtalkStreamModule.default?.DWClient;
-  log(`[DingTalk][${accountId}] DWClient 获取结果：`, DWClient ? '成功 ✓' : '失败 ✗');
   
   if (!DWClient) {
     throw new Error('Failed to import DWClient from dingtalk-stream module');
   }
-
-  log(`[DingTalk][${accountId}] 创建 DWClient 实例...`);
-  log(`[DingTalk][${accountId}] 使用网关地址：${GATEWAY_URL}`);
   const client = new DWClient({
     clientId: account.clientId,
     clientSecret: account.clientSecret,
-    debug: true, // 启用调试模式，查看详细连接日志
-    autoReconnect: true, // 启用自动重连
-    keepAlive: true, // 启用心跳机制
+    debug: false,
+    autoReconnect: true,
+    keepAlive: true,
   } as any);
-  log(`[DingTalk][${accountId}] DWClient 实例创建完成`);
 
   return new Promise<void>(async (resolve, reject) => {
     // Handle abort signal
@@ -127,26 +115,17 @@ export async function monitorSingleAccount(opts: MonitorDingtalkAccountOpts): Pr
     }
 
     // Register message handler
-    console.log(`[DingTalk][${accountId}] 注册消息监听器...`);
-    console.log(`[DingTalk][${accountId}] TOPIC_ROBOT 值:`, TOPIC_ROBOT);
     client.registerCallbackListener(TOPIC_ROBOT, async (res: any) => {
       const messageId = res.headers?.messageId;
-      console.log(`[DingTalk][${accountId}] ========== 收到 Stream 回调 ==========`);
-      console.log(`[DingTalk][${accountId}] messageId: ${messageId}`);
-      console.log(`[DingTalk][${accountId}] res.headers:`, JSON.stringify(res.headers, null, 2));
-      console.log(`[DingTalk][${accountId}] res.data 类型:`, typeof res.data);
-      console.log(`[DingTalk][${accountId}] res.data 长度:`, res.data?.length);
-      console.log(`[DingTalk][${accountId}] res 完整内容:`, JSON.stringify(res, null, 2));
 
       // 立即确认回调
       if (messageId) {
         client.socketCallBackResponse(messageId, { success: true });
-        console.log(`[DingTalk][${accountId}] 已立即确认回调：messageId=${messageId}`);
       }
 
       // 消息去重
       if (messageId && isMessageProcessed(messageId)) {
-        console.warn(`[DingTalk][${accountId}] 检测到重复消息，跳过处理：messageId=${messageId}`);
+        log?.warn?.(`[DingTalk][${accountId}] Duplicate message skipped: ${messageId}`);
         return;
       }
 
@@ -157,7 +136,6 @@ export async function monitorSingleAccount(opts: MonitorDingtalkAccountOpts): Pr
       // 异步处理消息
       try {
         const data = JSON.parse(res.data);
-        console.log(`[DingTalk][${accountId}] 开始处理消息：accountId=${accountId}, hasConfig=${!!account.config}, dataKeys=${Object.keys(data).join(',')}`);
         
         await messageHandler({
           accountId,
@@ -168,29 +146,22 @@ export async function monitorSingleAccount(opts: MonitorDingtalkAccountOpts): Pr
           log,
           cfg: clawdbotConfig,
         });
-        
-        console.log(`[DingTalk][${accountId}] 消息处理完成`);
       } catch (error: any) {
-        console.error(`[DingTalk][${accountId}] 处理消息异常：${error.message}\n${error.stack}`);
+        log?.error?.(`[DingTalk][${accountId}] Message processing error: ${error.message}`);
       }
     });
-    console.log(`[DingTalk][${accountId}] 消息监听器注册完成`);
 
-    // Connect to DingTalk Stream (同步等待，和老版本一致)
-    console.log(`[DingTalk][${accountId}] 开始连接钉钉 Stream...`);
+    // Connect to DingTalk Stream
     await client.connect();
-    console.log(`[DingTalk][${accountId}] ========== 钉钉 Stream 客户端已连接 ==========`);
-    console.log(`[DingTalk][${accountId}] 等待接收消息...`);
+    log(`[DingTalk][${accountId}] Connected to DingTalk Stream`);
 
     // Handle disconnection
     client.on('close', () => {
-      log(`[DingTalk][${accountId}] Connection closed, will auto-reconnect...`);
-      // ✅ 不要 resolve()，让 autoReconnect 自动重连
+      log?.warn?.(`[DingTalk][${accountId}] Connection closed, will auto-reconnect...`);
     });
 
     client.on('error', (err: Error) => {
-      log(`[DingTalk][${accountId}] Connection error: ${err.message}`);
-      // ✅ 不要 reject()，让 autoReconnect 自动重连
+      log?.error?.(`[DingTalk][${accountId}] Connection error: ${err.message}`);
     });
   });
 }
@@ -202,4 +173,4 @@ export function resolveReactionSyntheticEvent(
   return null;
 }
 
-console.log('[monitor-single.ts] 模块加载完成，monitorSingleAccount 已导出');
+
