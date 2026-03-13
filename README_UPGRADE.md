@@ -36,6 +36,30 @@ openclaw plugins install -l .
 openclaw gateway restart
 ```
 
+## ✅ 验证安装
+
+安装完成后，运行以下命令验证是否安装成功：
+
+```bash
+# 检查插件状态
+openclaw plugins list
+```
+
+应该看到：
+```
+✓ dingtalk-connector (enabled)
+```
+
+```bash
+# 检查配置
+openclaw config show channels.dingtalk-connector
+```
+
+```bash
+# 测试连接
+# 在钉钉中向机器人发送任意消息，查看是否正常响应
+```
+
 ## ⚠️ 注意事项
 
 1. **向下兼容**：旧配置无需修改即可使用
