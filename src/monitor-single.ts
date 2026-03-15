@@ -125,7 +125,7 @@ export async function monitorSingleAccount(opts: MonitorDingtalkAccountOpts): Pr
     `[DingTalk][${accountId}] Initializing with clientId: ${clientIdStr.substring(0, 8)}...`
   );
   log?.info?.(
-    `[DingTalk][${accountId}] WebSocket keepAlive: interval=30s, timeout=15s`
+    `[DingTalk][${accountId}] WebSocket keepAlive: false (using application-layer heartbeat)`
   );
 
   // 动态导入 dingtalk-stream 模块
@@ -136,14 +136,16 @@ export async function monitorSingleAccount(opts: MonitorDingtalkAccountOpts): Pr
     throw new Error('Failed to import DWClient from dingtalk-stream module');
   }
   
+  // 配置 DWClient：关闭 SDK 内置的 keepAlive，使用应用层自定义心跳
+  // - autoReconnect: true（SDK 在 close 事件时自动重连）
+  // - keepAlive: false（关闭 SDK 的激进心跳检测，避免 15 秒超时强制终止连接）
+  // - 注意：通过 isReconnecting 锁避免 SDK 和 应用层的双重 重连冲突
   const client = new DWClient({
     clientId: account.clientId,
     clientSecret: account.clientSecret,
     debug: false,
     autoReconnect: true,
-    keepAlive: true,
-    keepAliveInterval: 30000,  // 心跳间隔 30 秒
-    keepAliveTimeout: 15000,   // 心跳超时 15 秒（增加到 15 秒，更宽容）
+    keepAlive: false,
   } as any);
 
   return new Promise<void>(async (resolve, reject) => {
@@ -151,12 +153,20 @@ export async function monitorSingleAccount(opts: MonitorDingtalkAccountOpts): Pr
     if (abortSignal) {
       const onAbort = () => {
         log(`[DingTalk][${accountId}] Abort signal received, stopping...`);
+        clearInterval(statsInterval);
+        clearInterval(heartbeatTimer);
         releaseProcessLock(accountId); // 释放锁
         client.disconnect();
         resolve();
       };
       abortSignal.addEventListener("abort", onAbort, { once: true });
     }
+
+    // 【重连状态锁】避免 SDK 和 应用层的双重 重连冲突
+    // - SDK 的 autoReconnect 会在 close 事件时触发重连
+    // - 应用层心跳定时器也会在超时时触发重连
+    // - 通过此锁确保同一时间只有一个重连在运行
+    let isReconnecting = false;
 
     // 消息接收统计（用于检测消息丢失）
     let receivedCount = 0;
@@ -168,10 +178,60 @@ export async function monitorSingleAccount(opts: MonitorDingtalkAccountOpts): Pr
       const now = Date.now();
       const timeSinceLastMessage = Math.round((now - lastMessageTime) / 1000);
       log?.info?.(
-        `[DingTalk][${accountId}] 统计: 收到=${receivedCount}, 处理=${processedCount}, ` +
+        `[DingTalk][${accountId}] 统计：收到=${receivedCount}, 处理=${processedCount}, ` +
         `丢失=${receivedCount - processedCount}, 距上次消息=${timeSinceLastMessage}s`
       );
     }, 60000); // 每分钟输出一次
+
+    // 【应用层心跳机制】自定义温和的心跳检测，避免 SDK 的激进检测
+    // - 心跳间隔：30 秒（比 SDK 的 8 秒更宽松）
+    // - 超时时间：90 秒（允许 3 次心跳丢失）
+    // - 检测方式：检查最后收到消息的时间，如果超时则主动重连
+    const HEARTBEAT_INTERVAL = 30 * 1000; // 30 秒
+    const HEARTBEAT_TIMEOUT = 90 * 1000;  // 90 秒
+    
+    // 启动心跳检测定时器
+    const heartbeatTimer = setInterval(async () => {
+      const elapsed = Date.now() - lastMessageTime;
+      
+      // 如果超过 90 秒没有收到任何消息（包括心跳），认为连接可能已断开
+      if (elapsed > HEARTBEAT_TIMEOUT) {
+        // 【重连状态锁】检查是否已有重连在运行，避免与 SDK 的 autoReconnect 冲突
+        if (isReconnecting) {
+          log?.debug?.(`[${accountId}] 重连中，跳过心跳超时检测`);
+          return;
+        }
+        
+        log?.warn?.(`[${accountId}] ⚠️ 心跳超时：已 ${Math.round(elapsed / 1000)} 秒未收到消息，触发重连...`);
+        
+        // 主动重连：先断开再重新建立连接
+        isReconnecting = true;
+        try {
+          await client.disconnect();
+          log?.info?.(`[${accountId}] 已断开旧连接`);
+          
+          await client.connect();
+          lastMessageTime = Date.now();
+          
+          log?.info?.(`[${accountId}] ✅ 重连成功`);
+        } catch (err: any) {
+          log?.error?.(`[${accountId}] ❌ 重连失败：${err.message}`);
+          // 重连失败后，等待 5 秒后再次尝试
+          log?.info?.(`[${accountId}] 5 秒后再次尝试重连...`);
+          setTimeout(async () => {
+            try {
+              await client.connect();
+              lastMessageTime = Date.now();
+              log?.info?.(`[${accountId}] ✅ 重试重连成功`);
+            } catch (retryErr: any) {
+              log?.error?.(`[${accountId}] ❌ 重试重连失败：${retryErr.message}`);
+            }
+          }, 5000);
+        } finally {
+          isReconnecting = false;
+        }
+      }
+    }, HEARTBEAT_INTERVAL);
 
     // Register message handler
     client.registerCallbackListener(TOPIC_ROBOT, async (res: any) => {
@@ -267,6 +327,7 @@ export async function monitorSingleAccount(opts: MonitorDingtalkAccountOpts): Pr
     // 清理定时器
     const cleanup = () => {
       clearInterval(statsInterval);
+      clearInterval(heartbeatTimer);
       releaseProcessLock(accountId);
     };
 
