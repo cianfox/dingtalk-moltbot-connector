@@ -25,7 +25,8 @@ import {
   getOapiAccessToken,
   DINGTALK_API,
   DINGTALK_OAPI,
-  addEmotionReply
+  addEmotionReply,
+  recallEmotionReply,
 } from "../utils/utils-legacy.ts";
 import { 
   processLocalImages, 
