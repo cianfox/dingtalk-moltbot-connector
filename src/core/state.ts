@@ -1,3 +1,17 @@
+/**
+ * 钉钉消息流状态管理
+ * 
+ * 职责：
+ * - 管理每个钉钉账号的运行状态
+ * - 存储 AbortController 用于优雅停止消息流
+ * - 提供测试工具函数
+ * 
+ * 核心功能：
+ * - setDingtalkMonitorState: 设置账号运行状态
+ * - getDingtalkMonitorState: 获取账号运行状态
+ * - stopDingtalkMonitorState: 停止单个或多个账号的消息流
+ * - 测试工具：clearDingtalkWebhookRateLimitStateForTest 等
+ */
 const monitorState = new Map<string, { running: boolean; abortController?: AbortController }>();
 
 export function setDingtalkMonitorState(accountId: string, state: { running: boolean; abortController?: AbortController }): void {

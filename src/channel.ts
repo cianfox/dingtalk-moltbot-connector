@@ -9,13 +9,13 @@ import {
   DEFAULT_ACCOUNT_ID,
   resolveAllowlistProviderRuntimeGroupPolicy,
   resolveDefaultGroupPolicy,
-} from "./sdk-helpers.ts";
+} from "./sdk/helpers.ts";
 import {
   resolveDingtalkAccount,
   resolveDingtalkCredentials,
   listDingtalkAccountIds,
   resolveDefaultDingtalkAccountId,
-} from "./accounts.ts";
+} from "./config/accounts.ts";
 import {
   listDingtalkDirectoryPeers,
   listDingtalkDirectoryGroups,
@@ -26,8 +26,9 @@ import { resolveDingtalkGroupToolPolicy } from "./policy.ts";
 import { probeDingtalk } from "./probe.ts";
 import { normalizeDingtalkTarget, looksLikeDingtalkId } from "./targets.ts";
 import { dingtalkOnboardingAdapter } from "./onboarding.ts";
-import { sendTextToDingTalk, sendMediaToDingTalk } from "./messaging.ts";
-import type { ResolvedDingtalkAccount, DingtalkConfig } from "./types.ts";
+import { monitorDingtalkProvider } from "./core/provider.ts";
+import { sendTextToDingTalk, sendMediaToDingTalk } from "./services/messaging/index.ts";
+import type { ResolvedDingtalkAccount, DingtalkConfig } from "./types/index.ts";
 
 const meta: ChannelMeta = {
   id: "dingtalk-connector",
@@ -495,8 +496,8 @@ export const dingtalkPlugin: ChannelPlugin<ResolvedDingtalkAccount> = {
 console.log(`[channel.ts] startAccount 被调用：accountId=${ctx.accountId}`);
       try {
         console.log('='.repeat(60));
-        console.log('[channel.ts] 开始加载 monitor 模块...');
-        const monitorModule = await import("./monitor.ts");
+        console.log('[channel.ts] 开始加载 provider 模块...');
+        const monitorModule = await import("./core/provider.ts");
         ctx.log?.info?.(`[channel.ts] monitor module 加载完成`);
         ctx.log?.info?.(`[channel.ts] monitor module keys: ${Object.keys(monitorModule).join(', ')}`);
         ctx.log?.info?.(`[channel.ts] monitorModule 类型: ${typeof monitorModule}`);

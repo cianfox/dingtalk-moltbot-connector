@@ -1,17 +1,32 @@
-import { DWClient, TOPIC_ROBOT } from 'dingtalk-stream';
+/**
+ * 钉钉消息业务处理器
+ * 
+ * 职责：
+ * - 处理钉钉消息的业务逻辑
+ * - 支持多种消息类型：text、richText、picture、audio、video、file
+ * - 媒体文件下载和上传（图片、语音、视频、文件）
+ * - 会话上下文构建和管理
+ * - 消息分发（AI Card、命令处理、主动消息）
+ * - Policy 检查（DM 白名单、群聊策略）
+ * 
+ * 核心功能：
+ * - 消息内容提取和归一化
+ * - 媒体文件本地缓存管理
+ * - 钉钉 API 调用（accessToken、文件下载）
+ * - 与 OpenClaw 框架集成（bindings、runtime）
+ */
 import type { ClawdbotConfig, RuntimeEnv, HistoryEntry } from "openclaw/plugin-sdk";
-import type { ResolvedDingtalkAccount, DingtalkConfig } from "./types";
+import type { ResolvedDingtalkAccount, DingtalkConfig } from "../types/index.ts";
 import { 
   isMessageProcessed, 
   markMessageProcessed, 
   buildSessionContext,
   getAccessToken,
   getOapiAccessToken,
-  addEmotionReply,
-  recallEmotionReply,
   DINGTALK_API,
-  DINGTALK_OAPI
-} from "./utils";
+  DINGTALK_OAPI,
+  addEmotionReply
+} from "../utils/utils-legacy.ts";
 import { 
   processLocalImages, 
   processVideoMarkers, 
@@ -22,10 +37,10 @@ import {
   FILE_MARKER_PATTERN,
   VIDEO_MARKER_PATTERN,
   AUDIO_MARKER_PATTERN
-} from "./media";
-import { sendProactive, type AICardTarget } from "./messaging.js";
-import { createDingtalkReplyDispatcher, normalizeSlashCommand } from "./reply-dispatcher.js";
-import { getDingtalkRuntime } from "./runtime.js";
+} from "../services/media/index.ts";
+import { sendProactive, type AICardTarget } from "../services/messaging/index.ts";
+import { createDingtalkReplyDispatcher, normalizeSlashCommand } from "../reply-dispatcher.ts";
+import { getDingtalkRuntime } from "../runtime.ts";
 import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -670,7 +685,7 @@ export async function handleDingTalkMessage(params: HandleMessageParams): Promis
           );
 
           // ✅ 处理裸露的本地文件路径（绕过 OpenClaw SDK 的 bug）
-          const { processRawMediaPaths } = await import('./media.js');
+          const { processRawMediaPaths } = await import('../services/media.js');
           finalText = await processRawMediaPaths(
             finalText,
             config,

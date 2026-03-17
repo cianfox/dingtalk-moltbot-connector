@@ -8,9 +8,9 @@ import {
   createTypingCallbacks,
   logTypingFailure,
 } from "openclaw/plugin-sdk";
-import { resolveDingtalkAccount } from "./accounts.js";
-import { getDingtalkRuntime } from "./runtime.js";
-import type { DingtalkConfig } from "./types.js";
+import { resolveDingtalkAccount } from "./config/accounts.ts";
+import { getDingtalkRuntime } from "./runtime.ts";
+import type { DingtalkConfig } from "./types/index.ts";
 import {
   createAICardForTarget,
   streamAICard,
@@ -18,14 +18,14 @@ import {
   sendMessage,
   type AICardTarget,
   type AICardInstance,
-} from "./messaging.js";
+} from "./services/messaging/index.ts";
 import {
   processLocalImages,
   processVideoMarkers,
   processAudioMarkers,
   processFileMarkers,
-} from "./media.js";
-import { getAccessToken, getOapiAccessToken } from "./utils.js";
+} from "./services/media/index.ts";
+import { getAccessToken, getOapiAccessToken } from "./utils/index.ts";
 
 // ============ 新会话命令归一化 ============
 
@@ -229,7 +229,7 @@ export function createDingtalkReplyDispatcher(params: CreateDingtalkReplyDispatc
         
         // ✅ 处理裸露的本地文件路径（绕过 OpenClaw SDK 的 bug）
         logger?.info?.(`[DingTalk][closeStreaming] 准备调用 processRawMediaPaths`);
-        const { processRawMediaPaths } = await import('./media.js');
+        const { processRawMediaPaths } = await import('./services/media.js');
         finalText = await processRawMediaPaths(
           finalText,
           account.config as DingtalkConfig,
@@ -291,7 +291,7 @@ export function createDingtalkReplyDispatcher(params: CreateDingtalkReplyDispatc
             const oapiToken = await getOapiAccessToken(account.config as DingtalkConfig);
             if (oapiToken) {
               logger?.info?.(`[DingTalk][deliver] 检测到 final 响应，准备处理裸露文件路径`);
-              const { processRawMediaPaths } = await import('./media.js');
+              const { processRawMediaPaths } = await import('./services/media.js');
               text = await processRawMediaPaths(
                 text,
                 account.config as DingtalkConfig,
@@ -440,7 +440,7 @@ export function createDingtalkReplyDispatcher(params: CreateDingtalkReplyDispatc
           
           const now = Date.now();
           if (now - lastUpdateTime >= updateInterval) {
-            const { FILE_MARKER_PATTERN, VIDEO_MARKER_PATTERN, AUDIO_MARKER_PATTERN } = await import('./media.js');
+            const { FILE_MARKER_PATTERN, VIDEO_MARKER_PATTERN, AUDIO_MARKER_PATTERN } = await import('./services/media/common.ts');
             const displayContent = accumulatedText
               .replace(FILE_MARKER_PATTERN, '')
               .replace(VIDEO_MARKER_PATTERN, '')

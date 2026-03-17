@@ -1739,7 +1739,7 @@ async function sendMarkdownMessage(
   options: any = {},
 ): Promise<any> {
   const token = await getAccessToken(config);
-  let text = ensureTableBlankLines(markdown);
+  let text = markdown;
   if (options.atUserId) text = `${text} @${options.atUserId}`;
 
   const body: any = {
@@ -2036,15 +2036,11 @@ async function sendVideoProactive(
     }
 
     log?.info?.(`[DingTalk][Video][Proactive] 发送视频消息`);
-    log?.info?.(`[DingTalk][Video][Proactive] 请求体: ${JSON.stringify(body, null, 2)}`);
-    log?.info?.(`[DingTalk][Video][Proactive] endpoint: ${endpoint}`);
     const resp = await axios.post(endpoint, body, {
       headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
       timeout: 10_000,
     });
 
-    log?.info?.(`[DingTalk][Video][Proactive] 钉钉 API 响应: ${JSON.stringify(resp.data, null, 2)}`);
-    
     if (resp.data?.processQueryKey) {
       log?.info?.(`[DingTalk][Video][Proactive] 视频消息发送成功`);
     } else {
@@ -2280,7 +2276,7 @@ function buildMsgPayload(
         msgKey: 'sampleMarkdown',
         msgParam: {
           title: title || content.split('\n')[0].replace(/^[#*\s\->]+/, '').slice(0, 20) || 'Message',
-          text: ensureTableBlankLines(content),
+          text: content,
         },
       };
     case 'link':
@@ -3577,15 +3573,15 @@ const dingtalkPlugin = {
           ctx.log?.info?.(`[DingTalk] 已立即确认回调: messageId=${messageId}`);
         }
 
-        // 【消息去重】检查是否已处理过该消息
-        if (messageId && isMessageProcessed(messageId)) {
+        // 【消息去重】检查是否已处理过该消息（按账号维度隔离）
+        if (messageId && isMessageProcessed(account.accountId, messageId)) {
           ctx.log?.warn?.(`[DingTalk][${account.accountId}] 检测到重复消息，跳过处理: messageId=${messageId}`);
           return;
         }
 
-        // 标记消息为已处理
+        // 标记消息为已处理（按账号维度隔离）
         if (messageId) {
-          markMessageProcessed(messageId);
+          markMessageProcessed(account.accountId, messageId);
         }
 
         // 异步处理消息（不阻塞回调确认）
@@ -3984,8 +3980,6 @@ export {
 // ============ 测试辅助导出 ============
 // 仅用于单元测试，避免在业务代码中直接依赖内部实现细节
 export const __testables = {
-  // Markdown 修正
-  ensureTableBlankLines,
   // 会话 & 去重
   normalizeSlashCommand,
   buildSessionContext,

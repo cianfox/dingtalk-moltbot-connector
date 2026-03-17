@@ -1,0 +1,115 @@
+/**
+ * 媒体处理公共工具和常量
+ */
+
+import * as fs from 'fs';
+import * as path from 'path';
+import axios from 'axios';
+
+// ============ 常量 ============
+
+/** 文本文件扩展名 */
+export const TEXT_FILE_EXTENSIONS = new Set([
+  '.txt', '.md', '.json', '.yaml', '.yml', '.xml', '.html', '.css',
+  '.js', '.ts', '.py', '.java', '.c', '.cpp', '.h', '.sh', '.bat', '.csv',
+]);
+
+/** 图片文件扩展名 */
+export const IMAGE_EXTENSIONS = /\.(png|jpg|jpeg|gif|bmp|webp|tiff|svg)$/i;
+
+/** 本地图片路径正则表达式（跨平台） */
+export const LOCAL_IMAGE_RE =
+  /!\[([^\]]*)\]\(((?:file:\/\/\/|MEDIA:|attachment:\/\/\/)[^)]+|\/(?:tmp|var|private|Users|home|root)[^)]+|[A-Za-z]:[\\/][^)]+)\)/g;
+
+/** 纯文本图片路径正则表达式 */
+export const BARE_IMAGE_PATH_RE =
+  /`?((?:\/(?:tmp|var|private|Users|home|root)\/[^\s`'",)]+|[A-Za-z]:[\\/][^\s`'",)]+)\.(?:png|jpg|jpeg|gif|bmp|webp))`?/gi;
+
+/** 视频标记正则表达式 */
+export const VIDEO_MARKER_PATTERN = /\[DINGTALK_VIDEO\](.*?)\[\/DINGTALK_VIDEO\]/gs;
+
+/** 音频标记正则表达式 */
+export const AUDIO_MARKER_PATTERN = /\[DINGTALK_AUDIO\](.*?)\[\/DINGTALK_AUDIO\]/gs;
+
+/** 文件标记正则表达式 */
+export const FILE_MARKER_PATTERN = /\[DINGTALK_FILE\](.*?)\[\/DINGTALK_FILE\]/gs;
+
+// ============ 工具函数 ============
+
+/**
+ * 去掉 file:// / MEDIA: / attachment:// 前缀，得到实际的绝对路径
+ */
+export function toLocalPath(raw: string): string {
+  let filePath = raw;
+  if (filePath.startsWith('file://')) filePath = filePath.replace('file://', '');
+  else if (filePath.startsWith('MEDIA:')) filePath = filePath.replace('MEDIA:', '');
+  else if (filePath.startsWith('attachment://')) filePath = filePath.replace('attachment://', '');
+
+  try {
+    filePath = decodeURIComponent(filePath);
+  } catch {
+    // 解码失败则保持原样
+  }
+  return filePath;
+}
+
+/**
+ * 通用媒体文件上传函数
+ */
+export async function uploadMediaToDingTalk(
+  filePath: string,
+  mediaType: 'image' | 'file' | 'video' | 'voice',
+  oapiToken: string,
+  maxSize: number = 20 * 1024 * 1024,
+  log?: any,
+): Promise<string | null> {
+  try {
+    const FormData = (await import('form-data')).default;
+
+    const absPath = toLocalPath(filePath);
+    if (!fs.existsSync(absPath)) {
+      log?.warn?.(`[DingTalk][${mediaType}] 文件不存在：${absPath}`);
+      return null;
+    }
+
+    const stats = fs.statSync(absPath);
+    const fileSizeMB = (stats.size / (1024 * 1024)).toFixed(2);
+
+    if (stats.size > maxSize) {
+      const maxSizeMB = (maxSize / (1024 * 1024)).toFixed(0);
+      log?.warn?.(
+        `[DingTalk][${mediaType}] 文件过大：${absPath}, 大小：${fileSizeMB}MB, 超过限制 ${maxSizeMB}MB`,
+      );
+      return null;
+    }
+
+    const form = new FormData();
+    form.append('media', fs.createReadStream(absPath), {
+      filename: path.basename(absPath),
+      contentType: mediaType === 'image' ? 'image/jpeg' : 'application/octet-stream',
+    });
+
+    log?.info?.(`[DingTalk][${mediaType}] 上传文件：${absPath} (${fileSizeMB}MB)`);
+    const resp = await axios.post(
+      `${DINGTALK_OAPI}/media/upload?access_token=${oapiToken}&type=${mediaType}`,
+      form,
+      { headers: form.getHeaders(), timeout: 60_000 },
+    );
+
+    const mediaId = resp.data?.media_id;
+    if (mediaId) {
+      const cleanMediaId = mediaId.startsWith('@') ? mediaId.substring(1) : mediaId;
+      const downloadUrl = `https://down.dingtalk.com/media/${cleanMediaId}`;
+      log?.info?.(`[DingTalk][${mediaType}] 上传成功：mediaId=${cleanMediaId}`);
+      return downloadUrl;
+    }
+    log?.warn?.(`[DingTalk][${mediaType}] 上传返回无 media_id`);
+    return null;
+  } catch (err: any) {
+    log?.error?.(`[DingTalk][${mediaType}] 上传失败：${err.message}`);
+    return null;
+  }
+}
+
+/** 钉钉 OAPI 常量 */
+export const DINGTALK_OAPI = 'https://oapi.dingtalk.com';

@@ -1,7 +1,7 @@
-import { normalizeAccountId } from "./sdk-helpers.ts";
+import { normalizeAccountId } from "../sdk/helpers.ts";
 import { z } from "zod";
 export { z };
-import { buildSecretInputSchema, hasConfiguredSecretInput } from "./secret-input.ts";
+import { buildSecretInputSchema, hasConfiguredSecretInput } from "../secret-input.ts";
 
 const DmPolicySchema = z.enum(["open", "pairing", "allowlist"]);
 const GroupPolicySchema = z.enum(["open", "allowlist", "disabled"]);
@@ -64,6 +64,8 @@ const DingtalkSharedConfigShape = {
   groupSessionScope: GroupSessionScopeSchema,
   asyncMode: z.boolean().optional(),
   ackText: z.string().optional(),
+  endpoint: z.string().optional(), // DWClient gateway endpoint
+  debug: z.boolean().optional(), // DWClient debug mode
 };
 
 /**

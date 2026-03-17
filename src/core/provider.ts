@@ -1,5 +1,18 @@
+/**
+ * 钉钉消息流 Provider 入口
+ *
+ * 职责：
+ * - 提供 monitorDingtalkProvider 函数作为钉钉消息流的统一入口
+ * - 协调单账号和多账号监控场景
+ * - 并行导入连接层和消息处理模块，避免循环依赖
+ *
+ * 主要功能：
+ * - 根据 accountId 参数决定启动单账号或所有账号
+ * - 验证账号配置状态
+ * - 并行启动多个账号的消息流连接
+ */
 import type { ClawdbotConfig, RuntimeEnv } from "openclaw/plugin-sdk";
-import * as monitorState from "./monitor.state";
+import * as monitorState from "./state";
 
 // 只解构 monitorState 的导出
 const {
@@ -8,8 +21,6 @@ const {
   isWebhookRateLimitedForTest,
   stopDingtalkMonitorState,
 } = monitorState;
-
-
 
 export type MonitorDingtalkOpts = {
   config?: ClawdbotConfig;
@@ -22,10 +33,10 @@ export {
   clearDingtalkWebhookRateLimitStateForTest,
   getDingtalkWebhookRateLimitStateSizeForTest,
   isWebhookRateLimitedForTest,
-} from "./monitor.state";
+} from "./state";
 
 // 只导出类型，不 re-export 函数（避免循环依赖）
-export type { DingtalkReactionCreatedEvent } from "./monitor-single";
+export type { DingtalkReactionCreatedEvent } from "./core/connection.ts";
 
 export async function monitorDingtalkProvider(opts: MonitorDingtalkOpts = {}): Promise<void> {
   const cfg = opts.config;
@@ -35,20 +46,16 @@ export async function monitorDingtalkProvider(opts: MonitorDingtalkOpts = {}): P
 
   const log = opts.runtime?.log ?? console.log;
 
-
-
   // 并行导入所有模块（无循环依赖，可以并行）
   const [accountsModule, monitorAccountModule, monitorSingleModule] = await Promise.all([
-    import("./accounts"),
-    import("./monitor.account"),
-    import("./monitor-single"),
+    import("../config/accounts"),
+    import("./message-handler"),
+    import("./connection"),
   ]);
   
   const { resolveDingtalkAccount, listEnabledDingtalkAccounts } = accountsModule;
   const { handleDingTalkMessage } = monitorAccountModule;
   const { monitorSingleAccount, resolveReactionSyntheticEvent } = monitorSingleModule;
-  
-
 
   if (opts.accountId) {
     const account = resolveDingtalkAccount({ cfg, accountId: opts.accountId });

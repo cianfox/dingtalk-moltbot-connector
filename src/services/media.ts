@@ -7,7 +7,7 @@ import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { DingtalkConfig } from './types.ts';
-import { DINGTALK_OAPI, getOapiAccessToken } from './utils.ts';
+import { DINGTALK_OAPI, getOapiAccessToken } from '../utils/index.ts';
 
 // ============ 常量 ============
 

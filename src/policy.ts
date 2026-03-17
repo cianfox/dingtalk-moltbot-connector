@@ -1,5 +1,5 @@
 import type { ToolPolicy } from "openclaw/plugin-sdk";
-import type { ResolvedDingtalkAccount } from "./types.ts";
+import type { ResolvedDingtalkAccount } from "./types/index.ts";
 
 export function resolveDingtalkGroupToolPolicy(params: {
   account: ResolvedDingtalkAccount;
