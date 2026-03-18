@@ -117,9 +117,12 @@ export async function uploadMediaToDingTalk(
       contentType: mediaType === 'image' ? 'image/jpeg' : 'application/octet-stream',
     });
 
-    log?.info?.(`[DingTalk][${mediaType}] 上传文件：${absPath} (${fileSizeMB}MB)`);
+    // ✅ 钉钉媒体上传 API 不支持 video 类型，视频需要使用 file 类型上传
+    const uploadType = mediaType === 'video' ? 'file' : mediaType;
+    
+    log?.info?.(`[DingTalk][${mediaType}] 上传文件：${absPath} (${fileSizeMB}MB), uploadType=${uploadType}`);
     const resp = await axios.post(
-      `${DINGTALK_OAPI}/media/upload?access_token=${oapiToken}&type=${mediaType}`,
+      `${DINGTALK_OAPI}/media/upload?access_token=${oapiToken}&type=${uploadType}`,
       form,
       { headers: form.getHeaders(), timeout: 60_000 },
     );

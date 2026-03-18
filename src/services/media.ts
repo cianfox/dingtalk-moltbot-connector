@@ -117,15 +117,29 @@ export async function uploadMediaToDingTalk(
       return null;
     }
 
+    // ✅ 根据媒体类型设置正确的 contentType
+    const getContentType = () => {
+      const ext = path.extname(absPath).toLowerCase();
+      if (mediaType === 'image') {
+        return ext === '.png' ? 'image/png' : 'image/jpeg';
+      } else if (mediaType === 'video') {
+        return ext === '.mp4' ? 'video/mp4' : 'video/quicktime';
+      } else if (mediaType === 'voice') {
+        return ext === '.mp3' ? 'audio/mpeg' : 'audio/amr';
+      } else {
+        return 'application/octet-stream';
+      }
+    };
+
     const form = new FormData();
     form.append('media', fs.createReadStream(absPath), {
       filename: path.basename(absPath),
-      contentType: mediaType === 'image' ? 'image/jpeg' : 'application/octet-stream',
+      contentType: getContentType(),
     });
 
     log?.info?.(`[DingTalk][${mediaType}] 上传文件: ${absPath} (${fileSizeMB}MB)`);
     const resp = await axios.post(
-      `${DINGTALK_OAPI}/media/upload?access_token=${oapiToken}&type=${mediaType}`,
+      `${DINGTALK_OAPI}/media/upload?access_token=${oapiToken}&type=${mediaType === 'video' ? 'file' : mediaType}`,
       form,
       { headers: form.getHeaders(), timeout: 60_000 },
     );
@@ -234,7 +248,8 @@ export async function extractVideoMetadata(
           return;
         }
         try {
-          const duration = metadata.format?.duration ? Math.floor(parseFloat(metadata.format.duration)) : 0;
+          // ✅ 钉钉 API 需要毫秒，ffprobe 返回的是秒，需要转换
+          const duration = metadata.format?.duration ? Math.round(parseFloat(metadata.format.duration) * 1000) : 0;
           const videoStream = metadata.streams?.find((s: any) => s.codec_type === 'video');
           const width = videoStream?.width || 0;
           const height = videoStream?.height || 0;
